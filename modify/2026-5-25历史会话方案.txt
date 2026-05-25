@@ -1,0 +1,102 @@
+================================================================================
+ 历史会话记忆功能 — 设计方案
+ 日期：2026-5-25
+================================================================================
+
+一、需求概述
+----------------------------------------------------------------------
+    当前项目不保存任何历史会话数据，页面刷新即丢失所有对话记录。
+    需要为系统增加持久化的历史会话记忆能力，包括：
+    1. 会话管理（新建、切换、删除）
+    2. 消息持久化存储
+    3. Agent 查询历史会话的能力
+
+二、技术选型：SQLite
+----------------------------------------------------------------------
+    选择理由：
+    - Python 内置 sqlite3 模块，零外部依赖
+    - 结构化数据，按用户/时间/会话维度灵活查询
+    - 单文件数据库，部署简单，无需单独服务
+
+三、数据库设计
+----------------------------------------------------------------------
+    -- 会话表
+    CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,              -- UUID 主键
+        user_id TEXT,                     -- 关联的客户 ID（预留，目前始终保持默认值）
+        title TEXT,                       -- 会话标题（根据首条消息自动截取）
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 消息表
+    CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id),
+        role TEXT NOT NULL,               -- 'user' / 'assistant'
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+四、模块划分
+----------------------------------------------------------------------
+    4.1 utils/chat_memory.py —— 数据库操作层
+    ────────────────────────────────────────────
+        函数清单：
+        - init_db()                         初始化数据库和表结构
+        - create_conversation(title="")     创建新会话，返回会话 ID
+        - get_conversations()               获取所有会话（按更新时间倒序）
+        - get_conversation(conv_id)         获取单个会话信息
+        - delete_conversation(conv_id)      删除会话及其所有消息
+        - save_message(conv_id, role, content)  保存单条消息
+        - get_messages(conv_id)             获取某会话全部消息
+        - get_recent_messages(conv_id, limit=10) 获取最近 N 条消息
+
+    4.2 agent/tools/memory_tools.py —— Agent 侧记忆工具
+    ────────────────────────────────────────────
+        工具清单：
+        - query_conversation_history(user_id, limit=5)
+          Agent 调用此工具查询指定用户的历史问题与反馈，
+          可用于做更精准的回答。
+
+    4.3 app.py —— UI 层改动
+    ────────────────────────────────────────────
+        新增功能：
+        - 左侧边栏显示历史会话列表
+        - "新建会话"按钮
+        - 点击切换历史会话
+        - 删除会话按钮
+        - 刷新后自动恢复上次会话
+        - 每次消息交互后自动保存到 SQLite
+
+    4.4 agent/react_agent.py —— Agent 层改动
+    ────────────────────────────────────────────
+        改动点：
+        - execute_stream() 增加 messages 参数
+        - 将历史消息拼入 input_dict["messages"]，作为对话上下文
+
+五、数据流
+----------------------------------------------------------------------
+    用户进入页面
+      → app.py 从 SQLite 加载会话列表
+      → 用户选择或新建会话
+      → 用户输入问题
+      → app.py 保存用户消息到 SQLite
+      → 调用 Agent.execute_stream(query, conv_id)
+      → Agent 加载历史消息注入 context
+      → Agent 执行 ReAct 循环并流式返回
+      → app.py 保存助手消息到 SQLite
+
+六、涉及修改的文件清单
+----------------------------------------------------------------------
+    新增文件：
+    - utils/chat_memory.py
+    - agent/tools/memory_tools.py
+
+    修改文件：
+    - app.py
+    - agent/react_agent.py
+    - agent/tools/agent_tools.py
+    - prompts/main_prompt.txt
+
+================================================================================

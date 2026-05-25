@@ -18,6 +18,7 @@ venv/
 chroma_db/
 logs/
 md5.txt
+chat_history.db
 
 # OS
 Thumbs.db

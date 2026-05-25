@@ -23,7 +23,3 @@ class EmbeddingsFactory(BaseModelFactory):
     
 chat_model = ChatModelFactory().generator()
 embed_model = EmbeddingsFactory().generator()
-
-if __name__ == "__main__":
-    res = chat_model.invoke("你好")
-    print(res)
